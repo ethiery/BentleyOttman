@@ -1,236 +1,10 @@
-import heapq
-from sys import maxsize
-from math import floor
-from sortedcontainers import SortedList
 from Segment import Segment
+from ComparableSegment import ComparableSegment
+from Event import Event
+from EventQueue import EventQueue
+from SweepLine import SweepLine
 
-class Event(object):
-	''' 
-	This class represents an event encountered by the sweep line
-	in the Bentley-Ottmann algorithm. It has 3 attributes :
-	- its 2 coordinates (x,y)
-	- a sorted list of non vertical segments whose left endpoints have 
-	this coordinates
-	- a sorted list of non vertical segments whose right endpoints have 
-	this coordinates
-	- a sorted list of segments which intersect at this coordinates 
-	(not on their endpoints)
-	- a list of verticals segment whose left endpoints have 
-	this coordinates
-	- a list of verticals segment whose right endpoints have 
-	this coordinates
-	'''
-
-	def __init__(self, x, y):
-		self.x = x
-		self.y = y
-		self.left = []
-		self.right = []
-		self.inter = []
-		self.low = []
-		self.high = []
-
-
-	def __eq__(self, other):
-		'''
-		Two events are equals if they have the same coordinates
-		'''
-		if other == None:
-			return False
-		elif not isinstance(other, Event):
-			raise TypeError()
-		else:
-			return (self.x, self.y) == (other.x, other.y)
-
-	def __ne__(self, other):
-		return not self == other
-
-	def __lt__(self, other):
-		'''
-		Events are compared according to their coordinates
-		'''
-		return (self.x, self.y) < (other.x, other.y)
-
-
-class EventQueue(object):
-	''' 
-	This class represents a queue containing Events, and which is
-	maintained ordered throughout the execution of the Bentley-Ottmann
-	algorithm.
-
-	It relies on the python heapq module, which allows insertion in
-	O(lg(S)) (where S is the current size of the queue), and access to
-	the smallest element (i.e. the next Event) in O(1).
-
-	Note : when computing the intersections of a set of N segments,
-	at any moment the size of the queue is S <= 2*N + N^2
-	2*N events being the endpoints of the N segments and
-	N^2 events being the N^2 potential intersection points. 
-	'''
-
-	def __init__(self, segments):
-		'''
-		Initializes the list of events corresponding to a list of segments
-		'''
-		self.event_finder = {}
-		# Computes events
-		for s in segments:
-			# finds or creates the left endpoint event
-			e1 = self.event_finder.get((s.x1, s.y1), None)
-			if e1 == None:
-				e1 = Event(s.x1, s.y1)
-				self.event_finder[(s.x1, s.y1)] = e1
-			# finds or creates the right endpoint event
-			e2 = self.event_finder.get((s.x2, s.y2), None)
-			if e2 == None:
-				e2 = Event(s.x2, s.y2)
-				self.event_finder[(s.x2, s.y2)] = e2
-			# Adds the endpoints in the right list
-			if s.isVertical:
-				e1.low.append(s)
-				e2.high.append(s)
-			else:
-				heapq.heappush(e1.left, s)
-				heapq.heappush(e2.right, s)
-		# Sorts events in the queue
-		self.q = []
-		for event in self.event_finder.values():
-			heapq.heappush(self.q, event)
-
-	def addInter(self, x, y, seg1, seg2):
-		'''
-		Adds an intersection between seg1 and seg2 at the 
-		coordinates (x, y) to the eventQueue.
-		'''
-		e = self.event_finder.get((x, y), None)
-		# finds or creates the intersection event
-		if e == None:
-			e = Event(x, y)
-			self.event_finder[(x, y)] = e
-			heapq.heappush(self.q, e)
-		# Adds the segments to this to this event
-		for s in (seg1, seg2):
-			if s not in e.inter:
-				heapq.heappush(e.inter, s)
-
-	def nextEvent(self):
-		'''
-		Removes the next Event from the queue and returns it.
-		'''
-		e = heapq.heappop(self.q)
-		del self.event_finder[(e.x, e.y)]
-		return e
-
-	def isEmpty(self):
-		'''
-		Returns true if and only if the queue is empty.
-		'''
-		return len(self.q) == 0
-
-
-class SweepLine(object):
-	'''
-	This class represents the vertical sweep line which sweeps over 
-	the set of segments in the Bentley-Ottmann algorithm.
-
-	At any moment, it contains a sorted list of all the segments 
-	which intersect with the sweep line in its current position, 
-
-	It would usually rely on a balanced binary search tree data 
-	structure in order to have O(log(N)) insertion, deletion and swapping.
-
-	Instead, I chose to use a SortedList of Grant Jenks' SortedContainers 
-	module, which has several advantages that you can discover by browsing
-	its page. It allows O(log(N)) insertion, deletion and swapping, and I
-	find it to be faster in practice.
-	'''
-
-	def __init__(self):
-		'''
-		Initializes the Sorted List
-		'''
-		self.l = SortedList()
-
-	def add(self, seg):
-		'''
-		Adds seg to the sweep line
-		Note that seg is placed below any segment which passes above
-		its left endpoint, and above any segment which passes on or below
-		its left endpoint
-		'''
-		self.l.add(seg)
-
-	def remove(self, seg):
-		'''
-		Removes seg from the sweep line.
-		'''
-		self.l.remove(seg)
-
-	def below(self, seg):
-		'''
-		Returns the segment which is just below seg or None if it
-		does not exists.
-		seg does not necessarily have to be in the sweep line.
-		'''
-		i = self.l.bisect_left(seg)
-		if i-1 >= 0:
-			return self.l[i-1]
-		else:
-			return None
-
-	def above(self, seg):
-		'''
-		Returns the segment which is just above seg or None if it
-		does not exists.
-		seg does not necessarily have to be in the sweep line.
-		'''
-		i = self.l.bisect_right(seg)
-		if i < len(self.l):
-			return self.l[i]
-		else:
-			return None
-
-	def between(self, seg_inf, seg_sup):
-		'''
-		Returns a list of all the segments in the sweep line
-		between seg_inf and seg_sup not included
-		'''
-		i_sup = self.l.bisect_left(seg_sup)
-		i_inf = self.l.bisect_right(seg_inf)
-		if i_sup < i_inf:
-			return []
-		else:
-			return self.l[i_inf:i_sup]
-
-	def swap(self, x, y, seg1, seg2):
-		'''
-		Swaps seg1 and seg2 in the sweep line, at coord (x, y).
-		'''
-		i1 = self.l.index(seg1)
-		i2 = self.l.index(seg2)
-		# Change the segments left end points so that the 
-		# following swap keep sort order
-		seg1.x1, seg1.y1 = x, y
-		seg2.x1, seg2.y1 = x, y
-		# Swaps the segments
-		self.l[i1] = seg2
-		self.l[i2] = seg1
-
-	def isEmpty(self):
-		'''
-		Returns true if and only if the sweep line is empty.
-		'''
-		return len(self.l) == 0
-
-	def iter(self):
-		'''
-		Returns an iterator over the segments in the sweep line.
-		Segments must to be added or deleted while iterating
-		'''
-		return iter(self.l)
-
-
-def intersection_list(segments):
+def intersectionsList(segments):
 
 	# Initializes sorted event queue 
 	event_queue = EventQueue(segments)
@@ -238,116 +12,166 @@ def intersection_list(segments):
 	sweep_line = SweepLine()
 	# Initializes empty output intersection list
 	intersections = []
-
 	# Initializes empty list of vertical segments being swept
 	vertical_segments = []
 
+
 	while not event_queue.isEmpty():
 		event = event_queue.nextEvent()
-		print("event {}, {} :".format(event.x, event.y))
 
 		################## Handles vertical low endpoints ################
-		for vert_seg in event.low:
-			vertical_segments.append(vert_seg)
+		# It this event contains a vertical low endpoints, the 
+		# corresponding segment must be added to vertical_segments 
+		# before handling other segments.
+		#
+		# Also, it intersects with :
+		# - all the other vertical lines passing through this event
+		# - all the segments currently in the sweep line, whose 
+		# y-coordinate is between its low endpoint's and its high endpoint's 
+		# 
+		for seg in event.low:
+			# Computes intersections
+			for other in (vertical_segments +
+						  sweep_line.betweenY(seg.y1, seg.y2, seg.x1)):
+				inter = seg.intersectionWith(other)
+				if inter != None:
+					intersections.append(((seg, other), inter))
+					#print("appened inter 1")
+			# adds to vertical lines
+			vertical_segments.append(seg)
 
 		#################### Handles right endpoints #####################
-		if len(event.right) > 0: 
-			# computes intersection between segments above et below 
-			# the ones that are going to be removed
-			above = sweep_line.above(event.right[0])
-			below = sweep_line.below(event.right[-1])
-			if below != None and above != None:
-				inter = below.intersectionWith(above)
+		# It this event contains right endpoints, the corresponding 
+		# segments must be removed from the sweep line.
+		# These segments intersects with :
+		# - all segments in vertical_segments (dealt with while adding them)
+		# - all segments in event.left
+		# - all segments in event.inner_inter
+		# - each other 
+		#
+		for i in range(len(event.right)):
+			seg = event.right[i]
+			# Adds intersections
+			for other in event.left:
+				intersections.append(((seg, other), (event.x, event.y)))
+				#print("appened inter 2")
+			for j in range(i+1, len(event.right)):
+				other = event.right[j]
+				intersections.append(((seg, other), (event.x, event.y)))
+				#print("appened inter 3")
+			for other in event.inner_inter:
+				intersections.append(((seg, other), (event.x, event.y)))
+				#print("appened inter 4")
+			# removes it to the sweep line
+			sweep_line.removeSegment(seg)
+		
+		# ############## Handles non vertical intersections ###############
+		# It this event contains inner intersection points, the order of
+		# the corresponding segments in the sweep line but me reversed
+		# (to express the crossing of the segments)
+		# 
+		# Also these segments intersects with :
+		# - all segments in vertical_segments (dealt with while adding them)
+		# - all segments in event.right (dealt with when removing them)
+		# - all segments in event.left
+		# - each other 
+		for i in range(len(event.inner_inter)):
+			seg = event.inner_inter[i]
+			for other in event.left:
+				inter = seg.intersectionWith(other)
 				if inter != None:
-					x, y = inter
-					event_queue.addInter(x, y, below, above)
-		for seg in event.right:
-			# removes it from the sweep line
-			sweep_line.remove(seg)
-			# Adds its intersection with vertical segments
-			for vert_seg in vertical_segments:
-				print("add inter {} {} right endpoint".format(seg.x2, seg.y2))
-				intersections.append((seg.x2, seg.y2, seg, vert_seg))
+					intersections.append(((seg, other), inter))
+					#print("appened inter 5")
+			for j in range(i+1, len(event.inner_inter)):
+				other = event.inner_inter[j]
+				intersections.append(((seg, other), (event.x, event.y)))
+				#print("appened inter 6")
 
-		############## Handles non vertical intersections ###############
-		nb_segs = len(event.inter)
-		# Adds all the intersections between segments intersecting here
-		for i in range(nb_segs):
-			for j in range(i+1, nb_segs):
-				intersections.append((event.x, event.y, 
-									  event.inter[i], event.inter[j]))
-				print("add inter {} {} intersection".format(event.x, event.y))
-
-		# Inverse the order of intersections segments in the sweep line
-		for i in range(floor(len(event.inter)/2)):
-			sweep_line.swap(event.x, event.y, event.inter[i], event.inter[-i-1])
-		if len(event.inter) > 0:
-			# Computes the intersection between the new highest and the
-			# segment above it
-			highest = event.inter[0]
-			above = sweep_line.above(highest)
-			if above != None:
-				inter = highest.intersectionWith(above)
-				if inter != None:
-					x, y = inter
-					event_queue.addInter(x, y, highest, above)
-
-
-			# Computes the intersection between the new lowest and the
-			# segment below it
-			lowest = event.inter[-1]
-			below = sweep_line.below(lowest)
-			if below != None:
-				inter = lowest.intersectionWith(below)
-				if inter != None:
-					x, y = inter
-					event_queue.addInter(x, y, lowest, below)
-
-
-		#################### Handles left endpoints ##################### 
-		for seg in event.left:
+		# Inverses the order of intersections segments in the sweep line
+		if event.inner_inter != []:
+			sweep_line.revertOrder(event.x, event.inner_inter)
+		
+		# #################### Handles left endpoints #####################
+		# It this event contains left endpoints, the corresponding 
+		# segments must be added to the sweep line.
+		# These segments intersects with :
+		# - all segments in vertical_segments
+		# - all segments in event.right (already delt with)
+		# - all segments in event.inner_inter (already delt with)
+		# - each other
+		#
+		for i in range(len(event.left)):
+			seg = event.left[i]
 			# Adds it to the sweep line
-			#print("adding segment {} to the sweep line".format(seg))
-			sweep_line.add(seg)
-			# Adds its intersection with vertical segments
-			for vert_seg in vertical_segments:
-				intersections.append((seg.x1, seg.y1, seg, vert_seg))
-				print("add inter {} {} left endpoint".format(seg.x1, seg.y1))
-
-		if len(event.left) > 0:
-			# Computes the  intersection between the highest new 
-			# segment and the one above it
-			highest = event.left[-1]
-			above = sweep_line.above(highest)
-			if above != None:
-				inter = highest.intersectionWith(above)
+			sweep_line.addSegment(seg)
+			# Adds sure intersections
+			for other in vertical_segments:
+				intersections.append(((seg, other), (seg.x1, seg.y1)))
+				#print("appened inter 7")
+			for j in range(i+1, len(event.left)):
+				other = event.left[j]
+				inter = seg.intersectionWith(other)
 				if inter != None:
-					x, y = inter
-					event_queue.addInter(x, y, highest, above)
-
-			# Computes the intersection between the lowest new 
-			# segment and the one below it
-			lowest = event.left[0]
-			below = sweep_line.below(lowest)
-			if below != None:
-				inter = lowest.intersectionWith(below)
-				if inter != None:
-					x, y = inter
-					event_queue.addInter(x, y, lowest, below)
+					intersections.append(((seg, other), inter))
+					#print("appened inter 8")
+			
+		
+		# ############# Computes following intersections ################
+		# Now that we've added new segments, and removed some segments,
+		# the segments with highest gradient of event.left + even.inner_inter
+		# might intersect with the segments just above in the sweep line
+		# and the segments with lowest gradient might intersect with the
+		# segments below in the sweep line
+		greatest = None
+		if event.left != []:
+			greatest = event.left[-1]
+		if ((event.inner_inter != []) and 
+			(greatest == None or greatest < event.inner_inter[-1])):
+				greatest = event.inner_inter[-1]
+		if greatest != None:
+			highest_segments = sweep_line.sameLevelAs(greatest)
+			above_segments = sweep_line.aboveSegments(greatest)
+			for seg in highest_segments:
+				for other in above_segments:
+					inter = seg.intersectionWith(other)
+					if (isinstance(inter, Segment) or
+						inter == (event.x, event.y)):
+							intersections.append(((seg, other), inter))
+							#print("appened inter 9")
+					elif inter != None:
+						x, y = inter
+						#print("found new inner inter above")
+						event_queue.addIntersectingSegment(seg, x, y)
+						event_queue.addIntersectingSegment(other, x, y)
+		smallest = None
+		if event.left != []:
+			smallest = event.left[0]
+		if ((event.inner_inter != []) and 
+			(smallest == None or smallest < event.inner_inter[-1])):
+				smallest = event.inner_inter[0]
+		if smallest != None:
+			lowest_segments = sweep_line.sameLevelAs(smallest)
+			below_segments = sweep_line.belowSegments(smallest)
+			for seg in lowest_segments:
+				for other in below_segments:
+					inter = seg.intersectionWith(other)
+					if (isinstance(inter, Segment) or
+						inter == (event.x, event.y)):
+							intersections.append(((seg, other), inter))
+							#print("appened inter 10")
+					elif inter != None:
+						x, y = inter
+						#print("found new inner inter below")
+						event_queue.addIntersectingSegment(seg, x, y)
+						event_queue.addIntersectingSegment(other, x, y)
 
 		
 		################# Handles vertical high endpoints ################
-		for vert_seg in event.high:
-			x = vert_seg.x1
-			y_inf, y_sup = vert_seg.y1, vert_seg.y2
-			seg_inf = Segment(x, y_inf, x+1, y_inf)
-			seg_sup = Segment(x, y_sup, x+1, y_sup)
-			l = sweep_line.between(seg_inf, seg_sup)
-			for seg in l:
-				y = seg.yAtX(x)
-				intersections.append((x, y, seg, vert_seg))
-				print("add inter {} {} vertical".format(x, y))
-
-			vertical_segments.remove(vert_seg)
+		# It this event contains a vertical high endpoints, the 
+		# corresponding segment must removed from vertical_segments 
+		# after handling other segments, once all the intersections
+		# with it have been computed.,
+		for seg in event.high:
+			vertical_segments.remove(seg)
 
 	return intersections
